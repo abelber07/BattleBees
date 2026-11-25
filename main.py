@@ -4902,6 +4902,20 @@ def load_save():
     d["ver"] = SAVE_VERSION
     d["owned"] = {k: min(MAX_LV, int(v)) for k, v in d["owned"].items() if k in BEE_BY_KEY}
     d["deck"] = [k for k in d["deck"] if k in d["owned"]][:(DECK_MAX if d.get("slot6") else DECK_SIZE)]
+    # claus que ja no existeixen (abelles o enemics esborrats en una versió nova) farien petar les pantalles
+    d["captured"] = {k: v for k, v in d["captured"].items() if k in BEE_BY_KEY and k not in d["owned"]}
+    d["evo"] = {k: v for k, v in d["evo"].items() if k in BEE_BY_KEY}
+    d["mut"] = {k: v for k, v in d["mut"].items() if k in BEE_BY_KEY and v in MUTATIONS}
+    d["tamed"] = {k: v for k, v in d["tamed"].items() if k in ENEMIES}
+    d["ess"] = {k: v for k, v in d["ess"].items() if k in ENEMIES}
+    d["presets"] = [[k for k in p if k in BEE_BY_KEY] if isinstance(p, list) else [] for p in d["presets"]]
+    if d.get("rescue_target") not in d["captured"]:
+        d["rescue_target"] = next(iter(d["captured"]), None)
+    if d.get("wild") not in d["tamed"]:
+        d["wild"] = None
+    job = d.get("tame_job")
+    if job and (not isinstance(job, dict) or job.get("key") not in ENEMIES):
+        d["tame_job"] = None
     if not d["owned"]:
         d = default_save()
     return d
@@ -6974,11 +6988,14 @@ class GameUI:
             ic = fit(anim_img(IMG["ally_" + of["key"]], self.anim, 6), 100, 58)
             screen.blit(ic, ic.get_rect(center=(r.x + 58, r.y + 40)))
             txt(b["name"][:24], r.x + 116, r.y + 8, FONT_S, C_TXT)
-            txt(("Abella nova" if of["kind"] == "new" else "+1 nivell") + f"  |  {b['role']}", r.x + 116, r.y + 28, FONT_S, C_GOLD)
+            maxed = of["kind"] == "max"
+            txt({"new": "Abella nova", "lvl": "+1 nivell", "max": "Totes al màxim"}[of["kind"]] + f"  |  {b['role']}",
+                r.x + 116, r.y + 28, FONT_S, C_GOLD)
             txt("Canvia en " + self.shop_timer(), r.x + 116, r.y + 48, FONT_S, (176, 166, 140))
             done = sh["bee_bought"] if i == 0 else sh["lvl_bought"]
-            self.ui_button(pygame.Rect(r.right - 150, r.y + 44, 140, 38), "COMPRADA" if done else f"{of['cost']} pol·len",
-                           (self.buy_offer if i == 0 else self.buy_offer2), (not done) and ph >= of["cost"], FONT_S)
+            lab = "COMPRADA" if done else ("AL MÀXIM" if maxed else f"{of['cost']} pol·len")
+            self.ui_button(pygame.Rect(r.right - 150, r.y + 44, 140, 38), lab,
+                           (self.buy_offer if i == 0 else self.buy_offer2), (not done) and not maxed and ph >= of["cost"], FONT_S)
         # --- categoria 2: mel
         y += 110
         self.shelf(y, 104, "MEL", lambda x, yy: screen.blit(IMG["icon_honey"], (x - 16, yy - 16)))
@@ -8075,7 +8092,7 @@ class GameUI:
                 ("Abelles i diners", ["Genera abelles amb 1-6 (costen diners).", "Els diners pugen sols i en matar.", "W millora el moneder: més ingressos,", "menys recàrrega i més botí."]),
                 ("Vespa Reina", ["Si perds contra ella, les abelles que lluitin", "perden els nivells i les hauràs de rescatar", "derrotant enemics (botó Rescat del menú)."]),
                 ("Rols", ["Tanc: els enemics l'ataquen primer.", "Atacant: molt dany a prop.", "Tirador: de lluny i toca els voladors.", "Control: alenteix o atordeix. Suport: cura.", "3 rols diferents = +8% de vida."])]
-        right = [("Trompa i habilitats", ["ESPAI: trompa de pol·len (dany a tots).", "Q: Eixam (4 abelles gratis).", "E: Cura (abelles i rusc)."]),
+        right = [("Trompa i habilitats", ["ESPAI: trompa de pol·len (dany a tots).", "Q: Eixam (abelles gratis: més si són barates).","E: Cura (abelles i rusc)."]),
                  ("Voladors", ["Les abelles cos a cos fan -30% de dany als", "voladors. Les tiradores no."]),
                  ("Si caus", ["Pots continuar per 30 pol·len: els enemics", "retrocedeixen i tens el moneder ple."]),
                  ("Nit i dia", ["Si el nivell dura molt, es fa de nit i,", "més tard, torna a ser de dia."]),
@@ -8254,8 +8271,8 @@ def _a_dash(g, u, t, unit, tx, ty):
 
 def _a_flurry(g, u, t, unit, tx, ty):
     g.deal(u, t, 0.4, "fx_hit")
-    g.after(0.09, lambda: g.deal(u, t, 0.4, "fx_hit"))
-    g.after(0.18, lambda: g.deal(u, t, 0.4, "fx_hit"))
+    g.after(0.09, lambda: u.hp > 0 and g.deal(u, t, 0.4, "fx_hit"))     # si l'atacant ha mort, no pica
+    g.after(0.18, lambda: u.hp > 0 and g.deal(u, t, 0.4, "fx_hit"))
 
 
 def _a_poison(g, u, t, unit, tx, ty):
@@ -8358,7 +8375,7 @@ def _a_royal(g, u, t, unit, tx, ty):
 
 def _a_claw(g, u, t, unit, tx, ty):
     g.deal(u, t, 0.6, "fx_claw")
-    g.after(0.14, lambda: g.deal(u, t, 0.6, "fx_claw"))
+    g.after(0.14, lambda: u.hp > 0 and g.deal(u, t, 0.6, "fx_claw"))
 
 
 def _a_stomp(g, u, t, unit, tx, ty):
@@ -8498,6 +8515,7 @@ class Game(GameUI):
         self.state = state
         self.paused = False
         self.confirm_reset = False
+        self.mut_sel = None                   # el panell de mutació no es queda obert en tornar al Taller
         if state == "base":
             self.tip = random.randrange(len(TIPS))
         if state == "stages":
@@ -9676,11 +9694,19 @@ class Game(GameUI):
             if k in self.sv["owned"]:
                 del self.sv["owned"][k]
                 self.sv["evo"].pop(k, None)
+                self.sv["mut"].pop(k, None)              # la mutació depèn de l'evolució: també es perd
                 self.sv["captured"][k] = 0
         if not self.sv["owned"]:
             self.sv["owned"]["honey"] = 1
             self.sv["captured"].pop("honey", None)
         self.sv["deck"] = [k for k in self.sv["deck"] if k in self.sv["owned"]] or list(self.sv["owned"])[:3]
+        self.ensure_rescue_target()
+
+    def ensure_rescue_target(self):
+        """Si hi ha abelles captives i cap de triada, tria la primera: així els enemics derrotats no es perden."""
+        cap = self.sv["captured"]
+        if cap and self.sv.get("rescue_target") not in cap:
+            self.sv["rescue_target"] = next(iter(cap))
 
     def record_stats(self):
         for k_, n_ in self.ess_gain.items():
@@ -9694,6 +9720,7 @@ class Game(GameUI):
                 self.sv["wild"] = None
                 self.ui_say("%s està cansat: alimenta'l a la Cau" % ENEMIES[w_]["name"])
         self.wild_used = False
+        self.ensure_rescue_target()
         tgt = self.sv.get("rescue_target")
         if tgt in self.sv["captured"]:                       # només es rescata l'abella triada
             self.sv["captured"][tgt] += self.kills
@@ -9702,8 +9729,10 @@ class Game(GameUI):
                 self.gain_bee(tgt)
                 self.rescued_now.append(tgt)
                 self.sv["rescue_target"] = None
+                self.ensure_rescue_target()
                 self.sv["stats"]["rescued"] = self.sv["stats"].get("rescued", 0) + 1
-                self.ui_say("Has rescatat " + BEE_BY_KEY[tgt]["name"] + "! Tria la següent.")
+                self.ui_say("Has rescatat " + BEE_BY_KEY[tgt]["name"] + "!" + (" Ara: " + BEE_BY_KEY[self.sv["rescue_target"]]["name"]
+                                                                                if self.sv.get("rescue_target") else ""))
         st = self.sv["stats"]
         st["kills"] += self.kills
         st["spawned"] += self.spawned
@@ -10081,6 +10110,7 @@ class Game(GameUI):
     def toggle_armed(self, key):
         if self.sv["items"].get(key, 0) > 0:
             self.sv["armed"][key] = not self.sv["armed"].get(key, False)
+            self.save()
 
     def refresh_daily(self):
         today = datetime.date.today().isoformat()
@@ -10194,19 +10224,22 @@ class Game(GameUI):
         if new:
             b = rnd.choice(new)
             return dict(key=b["key"], kind="new", cost=BEE_PRICE[b["rarity"]])
-        low = [b for b in BEE_UNITS if self.sv["owned"].get(b["key"], 0) < MAX_LV] or BEE_UNITS
+        low = [b for b in BEE_UNITS if self.sv["owned"].get(b["key"], 0) < MAX_LV]
+        if not low:                                   # totes al màxim: no hi ha res per vendre
+            return dict(key=rnd.choice(BEE_UNITS)["key"], kind="max", cost=0)
         return dict(key=rnd.choice(low)["key"], kind="lvl", cost=30)
 
     def shop_offer2(self):
         rnd = random.Random(self.shop_slot() + "b")
         low = [b for b in BEE_UNITS if 0 < self.sv["owned"].get(b["key"], 0) < MAX_LV]
-        pick = rnd.choice(low) if low else BEE_UNITS[0]
-        return dict(key=pick["key"], kind="lvl", cost=30)
+        if not low:
+            return dict(key=BEE_UNITS[0]["key"], kind="max", cost=0)
+        return dict(key=rnd.choice(low)["key"], kind="lvl", cost=30)
 
     def buy_offer2(self):
         of = self.shop_offer2()
         sh = self.sv["shop"]
-        if sh.get("lvl_bought") or self.sv["pollen"] < of["cost"] or of["key"] not in self.sv["owned"]:
+        if of["kind"] == "max" or sh.get("lvl_bought") or self.sv["pollen"] < of["cost"] or of["key"] not in self.sv["owned"]:
             return
         if self.sv["owned"][of["key"]] >= MAX_LV:
             return
@@ -10220,17 +10253,16 @@ class Game(GameUI):
     def buy_offer(self):
         of = self.shop_offer()
         sh = self.sv["shop"]
-        if sh["bee_bought"] or self.sv["pollen"] < of["cost"]:
+        if of["kind"] == "max" or sh["bee_bought"] or self.sv["pollen"] < of["cost"]:
             return
         self.sv["pollen"] -= of["cost"]
         sh["bee_bought"] = True
         if of["kind"] == "new":
             self.gain_bee(of["key"])
-            self.sv["pollen"] = self.sv["pollen"]
             self.save()
             self.show_newbee(of["key"], "shop")
-        elif self.sv["owned"].get(of["key"], 0) < MAX_LV:
-            self.sv["owned"][of["key"]] += 1
+        else:
+            self.sv["owned"][of["key"]] += 1            # shop_offer només ofereix abelles per sota del màxim
         self.say("Compra feta: " + BEE_BY_KEY[of["key"]]["name"])
         sfx("coin")
         self.save()
@@ -10458,6 +10490,8 @@ async def _main_inner():
                 if ev.type == pygame.KEYDOWN:
                     if ev.key == pygame.K_F11:
                         g.toggle_opt("fullscreen")
+                    elif g.trans:
+                        pass                     # com amb el ratolí: res durant les transicions
                     elif g.state in ("intro", "tutorial"):
                         g.story_key(ev.key)
                     elif g.state == "dialogue" and ev.key == pygame.K_ESCAPE:
@@ -10480,8 +10514,6 @@ async def _main_inner():
                                 g.go("base")
                     elif g.state == "dialogue" and ev.key in (pygame.K_SPACE, pygame.K_RETURN, pygame.K_RIGHT):
                         g.dlg_advance()
-                    elif g.state == "dialogue" and ev.key == pygame.K_ESCAPE:
-                        g.dlg_skip_all()
                     elif g.state == "play" and not g.paused and not g.modal:
                         if ev.key in KEYS:
                             g.spawn_bee(KEYS.index(ev.key))
