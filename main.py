@@ -4947,9 +4947,17 @@ def write_save(sv):
 
 
 # ------------------------------------------------------------ FONTS, IMATGES I CACHES
+# Lletra pixel art Galmuri (SIL Open Font License, assets/fonts/OFL-Galmuri.txt): la mateixa al PC i al navegador.
+# Les mides es tradueixen a les que la fan veure nítida (múltiples de 12 sempre que es pot).
+GALMURI_SIZE = {13: 12, 15: 14, 17: 15, 19: 17, 24: 22, 26: 24, 40: 36, 78: 72}
+
+
 def _mkfont(size):
-    """Font monoespaiada si n'hi ha; al navegador no hi ha fonts del sistema: s'usa la per defecte."""
-    if WEB:
+    try:
+        return pygame.font.Font(_asset_path(os.path.join("fonts", "Galmuri11-Bold.ttf")), GALMURI_SIZE.get(size, size))
+    except Exception:
+        pass
+    if WEB:                                   # al navegador no hi ha fonts del sistema
         return pygame.font.Font(None, int(size * 1.2))
     try:
         return pygame.font.SysFont(PF, size, bold=True)
@@ -5125,6 +5133,23 @@ def txt(s, x, y, font=None, color=C_TXT, center=False, shadow=True, right=False)
     else:
         r.topleft = (x, y)
     screen.blit(img, r)
+
+
+def ellipsize(s, font, maxw):
+    """Retalla el text amb «…» perquè hi càpiga (si ja hi cap, el torna igual)."""
+    if font.size(s)[0] <= maxw:
+        return s
+    while len(s) > 1 and font.size(s + "…")[0] > maxw:
+        s = s[:-1]
+    return s.rstrip() + "…"
+
+
+def txt_fit(s, x, y, maxw, fonts, color=C_TXT, **kw):
+    """Com txt(), però si no cap prova una lletra més petita i, si encara no, retalla amb «…»."""
+    for f in fonts:
+        if f.size(s)[0] <= maxw:
+            return txt(s, x, y, f, color, **kw)
+    txt(ellipsize(s, fonts[-1], maxw), x, y, fonts[-1], color, **kw)
 
 
 def bar(x, y, w, h, frac, col=C_GREEN):
@@ -5647,6 +5672,33 @@ def draw_amber(cx, cy, r, tint, cracks=0, shake=(0, 0), glow=0.0):
         pygame.draw.lines(screen, (255, 236, 170), False, [(x + 1, y - 1) for x, y in pts], 1)
 
 
+ROLE_COL = {"Tanc": (120, 150, 190), "Atacant": (214, 96, 80), "Tirador": (130, 196, 110), "Control": (140, 210, 240),
+            "Suport": (236, 150, 200), "Salvatge": (190, 150, 230)}
+
+
+def draw_role(cx, cy, role, s=8):
+    """Icona petita del rol: escut (tanc), espasa (atacant), diana (tirador), floc (control), creu (suport)."""
+    col = ROLE_COL.get(role, (200, 200, 200))
+    pygame.draw.circle(screen, C_BORDER, (cx, cy), s + 3)
+    pygame.draw.circle(screen, (40, 32, 26), (cx, cy), s + 2)
+    if role == "Tanc":
+        pts = [(cx - s * 0.7, cy - s * 0.7), (cx + s * 0.7, cy - s * 0.7), (cx + s * 0.7, cy), (cx, cy + s * 0.85), (cx - s * 0.7, cy)]
+        pygame.draw.polygon(screen, col, pts)
+    elif role == "Atacant":
+        pygame.draw.line(screen, col, (cx - s * 0.6, cy + s * 0.6), (cx + s * 0.6, cy - s * 0.6), 3)
+        pygame.draw.line(screen, col, (cx - s * 0.6, cy), (cx, cy + s * 0.6), 2)
+    elif role == "Tirador":
+        pygame.draw.circle(screen, col, (cx, cy), int(s * 0.75), 2)
+        pygame.draw.circle(screen, col, (cx, cy), 2)
+    elif role == "Control":
+        for a in (0, 60, 120):
+            dx, dy = math.cos(math.radians(a)) * s * 0.75, math.sin(math.radians(a)) * s * 0.75
+            pygame.draw.line(screen, col, (cx - dx, cy - dy), (cx + dx, cy + dy), 2)
+    else:
+        pygame.draw.rect(screen, col, (cx - 2, cy - s * 0.65, 4, s * 1.3))
+        pygame.draw.rect(screen, col, (cx - s * 0.65, cy - 2, s * 1.3, 4))
+
+
 def draw_stall(cx, cy, s):
     """Parada de mercat amb tenda de ratlles (símbol de la botiga)."""
     for k in range(6):
@@ -5749,10 +5801,12 @@ class GameUI:
             col, tcol = C_BTN_OFF, (126, 114, 100)
         elif kind == "primary":
             col, tcol = (C_PRI_HOVER if hov else C_PRI), (252, 250, 236)
+        elif kind == "danger":
+            col, tcol = ((196, 84, 70) if hov else (166, 62, 52)), (252, 250, 236)
         else:
             col, tcol = (C_BTN_HOVER if hov else C_BTN), C_DARK
         button(r, col)
-        txt(label, r.centerx, r.centery, font, tcol, center=True, shadow=(enabled and kind == "primary"))
+        txt(label, r.centerx, r.centery, font, tcol, center=True, shadow=(enabled and kind in ("primary", "danger")))
         self.btn(r, action, enabled)
 
     def tab_button(self, r, label, action, selected, font=None):
@@ -6346,6 +6400,11 @@ class GameUI:
         self.stage = STAGES[0]
         self.draw_world_bg()
         self.stage = st
+        # franja de baix: abans no es pintava i s'hi quedava el que hi havia a la pantalla anterior
+        pygame.draw.rect(screen, (70, 48, 28), (0, UI_Y, W, H - UI_Y))
+        pygame.draw.rect(screen, (52, 34, 20), (0, UI_Y, W, 6))
+        for i in range(0, W, 46):
+            pygame.draw.circle(screen, (82, 58, 34), (i + 23 + (i // 46 % 2) * 11, UI_Y + 40 + (i // 46 % 3) * 18), 4)
         keys = ["honey", "bumble", "carpenter", "sweat", "orchid", "leafcutter"]
         for i, k in enumerate(keys):
             x = ((self.anim * (46 + i * 9) + i * 190) % (W + 200)) - 100
@@ -6451,7 +6510,17 @@ class GameUI:
             r = pygame.Rect(20 + col * 490, 56 + row * 100, 470, 92)
             ok = i <= unlocked
             cleared = self.sv["progress"] > i
+            nxt_lv = ok and not cleared                       # el nivell que toca jugar
             self.ui_button(r, "", (lambda i=i: self.begin_level(i)), ok)
+            if nxt_lv:
+                pl = 0.5 + 0.5 * math.sin(self.anim * 4)
+                pygame.draw.rect(screen, _mix((255, 214, 90), (255, 250, 220), pl), r.inflate(8, 8), 3, border_radius=4)
+            if ok:                                            # etiqueta a la cantonada: NOU! o SUPERAT
+                lab, bg = ("NOU!", (196, 64, 52)) if nxt_lv else ("SUPERAT", (70, 128, 62))
+                tw = FONT_S.size(lab)[0] + 16
+                tag = pygame.Rect(r.right - tw - 6, r.y + 6, tw, 18)
+                pygame.draw.rect(screen, bg, tag, border_radius=8)
+                txt(lab, tag.centerx, tag.centery, FONT_S, (255, 250, 236), center=True, shadow=False)
             fcol = C_DARK if ok else (126, 114, 100)
             if ok:
                 bi = IMG[s["base"]]
@@ -6466,8 +6535,8 @@ class GameUI:
                     draw_star(r.x + 132 + k * 22, r.y + 48, 8, k < st_n)
                 txt(f"Nivell recomanat: {s['rec']}", r.x + 120, r.y + 62, FONT_S, fcol, shadow=False)
                 mel, pol = STAGE_REWARD[i]
-                sub = "SUPERAT" if cleared else f"1a vegada: {pol} pol·len"
-                txt(f"{sub}  +{mel} mel", r.x + 120, r.y + 77, FONT_S, fcol, shadow=False)
+                sub = f"Repetir: +{mel} mel" if cleared else f"1a vegada: +{pol} pol·len  +{mel} mel"
+                txt(sub, r.x + 120, r.y + 77, FONT_S, fcol, shadow=False)
                 for q, eid in enumerate(stage_enemy_ids(s)[:4]):
                     ic = fit(IMG["enemy_" + ENEMIES[eid].get("sprite", eid)][0], 36, 36)
                     screen.blit(ic, ic.get_rect(center=(r.x + 330 + q * 40, r.y + 56)))
@@ -6476,12 +6545,11 @@ class GameUI:
         for j, s_ in enumerate(STAGES[pg_ * 6:(pg_ + 1) * 6]):
             if pygame.Rect(20 + (j % 2) * 490, 56 + (j // 2) * 100, 470, 92).collidepoint(mp_):
                 hov = pg_ * 6 + j
-        if hov is not None and hov <= unlocked:
-            c2_, c3_ = stage_star_conds(hov)
-            txt("2a estrella: " + star_text(hov, c2_), 20, 362, FONT_S, (250, 220, 130))
-            txt("3a estrella: " + star_text(hov, c3_), 20, 380, FONT_S, (250, 220, 130))
-        else:
-            txt("Passa el ratolí per sobre d'un nivell per veure com aconseguir-ne les estrelles", 20, 370, FONT_S, (176, 166, 140))
+        # estrelles del nivell assenyalat o, si no n'hi ha cap, del que toca jugar (així també es veu al mòbil)
+        show = hov if (hov is not None and hov <= unlocked) else unlocked
+        c2_, c3_ = stage_star_conds(show)
+        txt(f"Estrelles del nivell {show + 1}:", 20, 362, FONT_S, C_TXT)
+        txt("2a: " + star_text(show, c2_) + "     3a: " + star_text(show, c3_), 20, 380, FONT_S, (250, 220, 130))
         txt("Equip actual:", 20, 404, FONT, C_TXT)
         for i, k in enumerate(self.sv["deck"]):
             rr = pygame.Rect(20 + i * 86, 426, 80, 56)
@@ -6499,7 +6567,7 @@ class GameUI:
             have = self.sv["items"].get(it["id"], 0)
             on = self.sv["armed"].get(it["id"], False) and have > 0
             self.card(rr, hl=on)
-            txt(it["name"][:13], rr.centerx, rr.y + 16, FONT_S, C_GOLD if on else C_TXT, center=True)
+            txt_fit(it["name"], rr.centerx, rr.y + 16, rr.w - 8, (FONT_S,), C_GOLD if on else C_TXT, center=True)
             txt(("ACTIU  " if on else "") + f"x{have}", rr.centerx, rr.y + 38, FONT_S, C_TXT, center=True)
             self.btn(rr, (lambda k=it["id"]: self.toggle_armed(k)), have > 0)
 
@@ -6527,10 +6595,14 @@ class GameUI:
             txt(b["name"], r.x + 8, r.y + 6, FONT_S, C_TXT)
             txt(f"Nv {lv}/{MAX_LV}", r.x + 110, r.y + 26, FONT, C_GOLD)
             txt(b["role"] + (" - antiaèria" if b["air"] else ""), r.x + 8, r.y + 70, FONT_S, C_GOLD)
-            txt(STYLE_NAME[b["style"]][:24], r.x + 8, r.y + 84, FONT_S, (176, 166, 140))
+            txt_fit(STYLE_NAME[b["style"]], r.x + 8, r.y + 84, r.w - 16, (FONT_S,), (176, 166, 140))
             hp, atk = self.bee_stats(k, lv)
-            txt(f"PV  {hp}", r.x + 110, r.y + 46, FONT_S, C_TXT)
-            txt(f"ATQ {atk}", r.x + 110, r.y + 58, FONT_S, C_TXT)
+            nhp, natk = self.bee_stats(k, lv + 1) if lv < MAX_LV else (hp, atk)
+            for row_, (lab_, a_, b_) in enumerate((("PV", hp, nhp), ("ATQ", atk, natk))):
+                yy_ = r.y + 46 + row_ * 13
+                txt(f"{lab_} {a_}", r.x + 110, yy_, FONT_S, C_TXT)
+                if b_ > a_:                                       # què guanyes amb la millora
+                    txt(f"→ {b_}", r.x + 110 + FONT_S.size(f"{lab_} {a_}")[0] + 6, yy_, FONT_S, (150, 230, 140))
             if lv >= MAX_LV and self.sv["evo"].get(k):
                 mname = MUTATIONS[self.sv["mut"][k]]["name"] if self.sv["mut"].get(k) in MUTATIONS else "tria"
                 self.ui_button(pygame.Rect(r.x + 8, r.y + 100, r.w - 16, 28), "Mutació: " + mname,
@@ -6586,20 +6658,28 @@ class GameUI:
                 ic = fit(IMG["beeicon_" + k], 84, 52)
                 screen.blit(ic, ic.get_rect(center=(cx, cy - 4)))
                 rar_icon(int(cx), int(cy - 44), BEE_BY_KEY[k]["rarity"], 6)
-                txt(f"Nv{self.sv['owned'][k]} {BEE_BY_KEY[k]['name'][:14]}", cx, cy + 68, FONT_S, C_TXT, center=True)
+                draw_role(int(cx - 40), int(cy - 28), BEE_BY_KEY[k]["role"], 7)
+                txt_fit(f"Nv{self.sv['owned'][k]} {BEE_BY_KEY[k]['name']}", cx, cy + 68, 154, (FONT_S,), C_TXT, center=True)
                 self.btn(pygame.Rect(int(cx - 52), int(cy - 52), 104, 104), lambda k=k: self.toggle_deck(k))
             else:
                 pygame.draw.polygon(screen, (40, 66, 70), pts)
                 pygame.draw.polygon(screen, (80, 120, 120), pts, 2)
                 txt("buit", cx, cy, FONT_S, (110, 140, 140), center=True)
+        preset_hov = None
         for i in range(3):
-            self.ui_button(pygame.Rect(280 + i * 190, H - 42, 80, 36), f"Desa {i + 1}", (lambda i=i: self.save_preset(i)), True, FONT_S)
-            self.ui_button(pygame.Rect(364 + i * 190, H - 42, 100, 36), f"Carrega {i + 1}", (lambda i=i: self.load_preset(i)),
-                           bool(self.sv["presets"][i]), FONT_S)
+            rs_ = pygame.Rect(280 + i * 190, H - 42, 80, 36)
+            rl_ = pygame.Rect(364 + i * 190, H - 42, 100, 36)
+            self.ui_button(rs_, f"Desa {i + 1}", (lambda i=i: self.save_preset(i)), True, FONT_S)
+            self.ui_button(rl_, f"Carrega {i + 1}", (lambda i=i: self.load_preset(i)), bool(self.sv["presets"][i]), FONT_S)
+            if rs_.collidepoint(pygame.mouse.get_pos()) or rl_.collidepoint(pygame.mouse.get_pos()):
+                preset_hov = i
         txt("Les teves abelles (clica per afegir / treure)", 24, 196, FONT, C_TXT)
         roles = {BEE_BY_KEY[k]["role"] for k in deck}
-        txt("Equip equilibrat: +8% de vida" if len(roles) >= 3 else "Combina 3 rols diferents: +8% de vida",
-            W - 20, 198, FONT_S, C_GOLD if len(roles) >= 3 else (170, 160, 140), right=True)
+        lab_ = "Equip equilibrat: +8% de vida" if len(roles) >= 3 else "Combina 3 rols diferents: +8% de vida"
+        txt(lab_, W - 20, 198, FONT_S, C_GOLD if len(roles) >= 3 else (170, 160, 140), right=True)
+        rx_ = W - 30 - FONT_S.size(lab_)[0]
+        for j_, ro_ in enumerate(sorted(roles)):                  # els rols que ja tens, en icones
+            draw_role(rx_ - 12 - j_ * 24, 205, ro_, 7)
         mp = pygame.mouse.get_pos()
         info = None
         for idx, b in enumerate(own[pg_ * 12:(pg_ + 1) * 12]):
@@ -6609,11 +6689,17 @@ class GameUI:
             owned = True
             self.card(r, b["rarity"], hl=(k in deck))
             if owned:
+                if k in deck:
+                    pygame.draw.rect(screen, (252, 236, 180), r.inflate(2, 2), 3)
                 ic = fit(IMG["beeicon_" + k], 130, 56)
                 screen.blit(ic, ic.get_rect(center=(r.centerx, r.y + 40)))
-                txt(b["name"], r.centerx, r.y + 82, FONT_S, C_TXT, center=True)
-                txt(f"Nv {self.sv['owned'][k]}" + ("   EQUIPADA" if k in deck else ""), r.centerx, r.y + 98, FONT_S,
-                    C_GOLD, center=True)
+                draw_role(r.x + 14, r.y + 14, b["role"], 7)
+                txt_fit(b["name"], r.centerx, r.y + 80, r.w - 10, (FONT_S,), C_TXT, center=True)
+                txt(f"Nv {self.sv['owned'][k]}", r.x + 10, r.y + 92, FONT_S, C_GOLD)
+                if k in deck:
+                    pill = pygame.Rect(r.right - 84, r.y + 92, 76, 16)
+                    pygame.draw.rect(screen, (70, 128, 62), pill, border_radius=7)
+                    txt("EQUIPADA", pill.centerx, pill.centery, FONT_S, (255, 250, 236), center=True, shadow=False)
                 self.btn(r, lambda k=k: self.toggle_deck(k))
                 if r.collidepoint(mp):
                     info = k
@@ -6621,7 +6707,13 @@ class GameUI:
                 sil = fit(IMG["sil_" + k], 130, 56)
                 screen.blit(sil, sil.get_rect(center=(r.centerx, r.y + 40)))
                 txt("???", r.centerx, r.y + 90, FONT, (120, 110, 96), center=True)
-        if info:
+        if preset_hov is not None:
+            p_ = [k for k in self.sv["presets"][preset_hov] if k in BEE_BY_KEY]
+            txt(f"Equip {preset_hov + 1}:" + ("" if p_ else "  buit (Desa per guardar-hi l'equip actual)"), 20, 470, FONT_S, C_GOLD)
+            for j_, k in enumerate(p_):
+                ic = fit(IMG["beeicon_" + k], 34, 20)
+                screen.blit(ic, ic.get_rect(center=(100 + j_ * 40, 476)))
+        elif info:
             b = BEE_BY_KEY[info]
             lv = self.sv["owned"][info]
             hp, atk = self.bee_stats(info, lv)
@@ -6658,7 +6750,7 @@ class GameUI:
                 elif self.daily_prog(m) >= m["val"]:
                     self.ui_button(br, "COBRA", (lambda mid=mid: self.claim_daily(mid)), True, FONT, "primary")
                 else:
-                    self.ui_button(br, "...", lambda: None, False, FONT)
+                    self.progress_box(br, self.daily_prog(m), m["val"])
             r = pygame.Rect(16, 304, 968, 78)
             self.card(r)
             draw_gift(r.x + 46, r.y + 40, 22)
@@ -6703,7 +6795,7 @@ class GameUI:
                 elif done:
                     self.ui_button(br, "COBRA", (lambda mid=mid: self.claim_weekly(mid)), True, FONT, "primary")
                 else:
-                    self.ui_button(br, "...", lambda: None, False, FONT)
+                    self.progress_box(br, self.weekly_prog(m), m["val"])
             ev = current_event()
             r = pygame.Rect(16, 304, 968, 78)
             self.card(r, "rare")
@@ -6739,10 +6831,19 @@ class GameUI:
             elif done:
                 self.ui_button(br, "COBRA", (lambda m=m: self.claim(m)), True, FONT, "primary")
             else:
-                self.ui_button(br, "...", lambda: None, False, FONT)
+                self.progress_box(br, self.mission_progress(m), m["val"])
         self.ui_button(pygame.Rect(W // 2 - 150, H - 42, 60, 36), "<", lambda: self.set_mpage(-1), self.mpage > 0, FONT_B)
         txt(f"Pàgina {self.mpage + 1}/{pages}", W // 2, H - 24, FONT, C_TXT, center=True)
         self.ui_button(pygame.Rect(W // 2 + 90, H - 42, 60, 36), ">", lambda: self.set_mpage(1), self.mpage < pages - 1, FONT_B)
+
+    def progress_box(self, r, cur, need):
+        """En lloc d'un botó gris «...»: una barra que diu quant falta."""
+        pygame.draw.rect(screen, C_BORDER, r.inflate(4, 4))
+        pygame.draw.rect(screen, (30, 24, 18), r)
+        frac = max(0.0, min(1.0, cur / max(1, need)))
+        if frac > 0:
+            pygame.draw.rect(screen, (118, 96, 52), (r.x, r.y, max(3, int(r.w * frac)), r.h))
+        txt("%d%%" % int(frac * 100), r.centerx, r.centery, FONT_S, (236, 222, 190), center=True, shadow=False)
 
     def set_mpage(self, d):
         self.mpage += d
@@ -6973,27 +7074,31 @@ class GameUI:
             y = 110 + i * 62
             ic = fit(IMG["beeicon_" + k], 80, 44)
             screen.blit(ic, ic.get_rect(center=(660, y + 22)))
-            txt(BEE_BY_KEY[k]["name"][:22], 720, y + 6, FONT_S, C_TXT)
+            txt_fit(BEE_BY_KEY[k]["name"], 720, y + 6, W - 730, (FONT_S,), C_TXT)
             txt(f"{n} generades", 720, y + 26, FONT_S, C_GOLD)
 
     def draw_options(self):
         self.chrome("Opcions", theme="options", back_to="title")
         o = self.sv["opts"]
-        rows = [
-            (f"Pantalla completa: {'SÍ' if o['fullscreen'] else 'NO'}   (F11)", lambda: self.toggle_opt("fullscreen")),
-            (f"Efectes de so: {'SÍ' if o['sfx'] else 'NO'}", lambda: self.toggle_opt("sfx")),
-            (f"Música: {'SÍ' if o['music'] else 'NO'}", lambda: self.toggle_opt("music")),
-            (f"Flaixos de llum (llamps, jefe): {'SÍ' if o['flashes'] else 'NO'}", lambda: self.toggle_opt("flashes")),
-            (f"Lletra gran: {'SÍ' if o['bigfont'] else 'NO'}", lambda: self.toggle_opt("bigfont")),
-        ]
-        for i, (label, act) in enumerate(rows):
-            self.ui_button(pygame.Rect(240, 66 + i * 60, 520, 50), label, act, True, FONT)
+        rows = [("Pantalla completa  (F11)", "fullscreen"), ("Efectes de so", "sfx"), ("Música", "music"),
+                ("Flaixos de llum (llamps, cap final)", "flashes"), ("Lletra gran", "bigfont")]
+        for i, (label, key) in enumerate(rows):
+            r = pygame.Rect(240, 66 + i * 60, 520, 50)
+            self.ui_button(r, "", (lambda key=key: self.toggle_opt(key)), True, FONT)
+            txt(label, r.x + 20, r.centery - FONT.get_height() // 2, FONT, C_DARK, shadow=False)
+            on = bool(o[key])                                   # interruptor: verd SÍ / gris NO
+            sw = pygame.Rect(r.right - 104, r.y + 11, 84, 28)
+            pygame.draw.rect(screen, (38, 26, 14), sw.inflate(4, 4), border_radius=16)
+            pygame.draw.rect(screen, C_PRI if on else (92, 84, 74), sw, border_radius=14)
+            kx = sw.right - 15 if on else sw.x + 15
+            pygame.draw.circle(screen, (250, 246, 230), (kx, sw.centery), 11)
+            txt("SÍ" if on else "NO", sw.x + 26 if on else sw.right - 26, sw.centery, FONT_S, (252, 250, 236), center=True, shadow=False)
         y = 66 + len(rows) * 60
         txt(f"Volum: {int(o['volume'] * 100)}%", 300, y + 14, FONT_M, C_TXT)
         self.ui_button(pygame.Rect(560, y + 4, 60, 44), "-", lambda: self.vol_step(-0.1), o["volume"] > 0.05, FONT_B)
         self.ui_button(pygame.Rect(630, y + 4, 60, 44), "+", lambda: self.vol_step(0.1), o["volume"] < 0.99, FONT_B)
         lab = "Segur? Clica de nou per esborrar" if self.confirm_reset else "Esborrar partida"
-        self.ui_button(pygame.Rect(240, y + 64, 520, 50), lab, self.reset_save, True, FONT)
+        self.ui_button(pygame.Rect(240, y + 64, 520, 50), lab, self.reset_save, True, FONT, "danger")
         if not AUDIO["ok"]:
             txt("(No s'ha pogut iniciar l'àudio en aquest equip)", W // 2, 452, FONT_S, (200, 160, 120), center=True)
 
@@ -7024,7 +7129,7 @@ class GameUI:
             b = BEE_BY_KEY[of["key"]]
             ic = fit(anim_img(IMG["ally_" + of["key"]], self.anim, 6), 100, 58)
             screen.blit(ic, ic.get_rect(center=(r.x + 58, r.y + 40)))
-            txt(b["name"][:24], r.x + 116, r.y + 8, FONT_S, C_TXT)
+            txt_fit(b["name"], r.x + 116, r.y + 8, r.w - 126, (FONT_S,), C_TXT)
             maxed = of["kind"] == "max"
             txt({"new": "Abella nova", "lvl": "+1 nivell", "max": "Totes al màxim"}[of["kind"]] + f"  |  {b['role']}",
                 r.x + 116, r.y + 28, FONT_S, C_GOLD)
@@ -7051,7 +7156,7 @@ class GameUI:
             r = pygame.Rect(142 + i * 282, y + 8, 274, 88)
             self.card(r)
             txt(it["name"], r.x + 12, r.y + 6, FONT_S, C_GOLD)
-            txt(it["desc"][:32], r.x + 12, r.y + 24, FONT_S, C_TXT)
+            txt_fit(it["desc"], r.x + 12, r.y + 24, r.w - 24, (FONT_S,), C_TXT)
             txt(f"Tens: {self.sv['items'].get(it['id'], 0)}", r.x + 12, r.y + 40, FONT_S, (176, 166, 140))
             self.ui_button(pygame.Rect(r.x + 12, r.y + 56, r.w - 24, 26), f"x{it['n']}  {it['cost']} pol·len",
                            (lambda k=it["id"]: self.buy_item(k)), ph >= it["cost"], FONT_S)
@@ -7090,7 +7195,8 @@ class GameUI:
             if cd["id"] == "swarm" and self.sv["deck"]:
                 sk = self.sv.get("swarm_key")
                 sk = sk if sk in self.sv["deck"] else min(self.sv["deck"], key=lambda k: BEE_BY_KEY[k]["cost"])
-                self.ui_button(pygame.Rect(r.x + 80, r.y + 66, 112, 24), BEE_BY_KEY[sk]["name"][:12], self.cycle_swarm, True, FONT_S)
+                self.ui_button(pygame.Rect(r.x + 74, r.y + 68, 104, 22), ellipsize(BEE_BY_KEY[sk]["name"], FONT_S, 96),
+                               self.cycle_swarm, True, FONT_S)
             if lv >= cd["mx"]:
                 self.ui_button(pygame.Rect(r.right - 122, r.y + 50, 110, 38), "MÀXIM", lambda: None, False, FONT_S)
             else:
