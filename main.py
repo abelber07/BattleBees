@@ -8999,7 +8999,7 @@ class Game(GameUI):
         o[key] = not o[key]
         if key == "fullscreen" and not self.headless:
             try:
-                pygame.display.toggle_fullscreen()
+                toggle_fullscreen()
             except Exception:
                 pass
         elif key == "bigfont":
@@ -10369,11 +10369,35 @@ def run_simulation(argv):
 def init_display():
     global screen, clock
     try:
-        screen = pygame.display.set_mode((W, H), pygame.SCALED | pygame.RESIZABLE)
+        if WEB:
+            # Al navegador, SCALED|RESIZABLE fa que SDL canviï la mida del llenç (p. ex. 1000x833) mentre pygbag
+            # l'escala amb CSS: la imatge queda deformada i els clics no cauen on es veuen els botons.
+            # Amb una mida fixa, pygbag escala el llenç mantenint la proporció i el ratolí quadra.
+            screen = pygame.display.set_mode((W, H))
+        else:
+            screen = pygame.display.set_mode((W, H), pygame.SCALED | pygame.RESIZABLE)
     except Exception:
         screen = pygame.display.set_mode((W, H))
     pygame.display.set_caption("The BattleBees")
     clock = pygame.time.Clock()
+
+
+def toggle_fullscreen():
+    """Al navegador, la pantalla completa la fa el navegador (pygbag torna a escalar el llenç i el ratolí quadra);
+    la de SDL deformaria la imatge com abans."""
+    if WEB:
+        doc = _ls_window().document
+        if doc.fullscreenElement:
+            doc.exitFullscreen()
+        else:
+            doc.documentElement.requestFullscreen()
+        return
+    pygame.display.toggle_fullscreen()
+
+
+def _ls_window():
+    import platform
+    return platform.window
 
 
 def loading_screen(frac, label):
@@ -10472,9 +10496,9 @@ async def _main_inner():
     g = Game()
     if g.sv["opts"]["bigfont"]:
         make_fonts(True)
-    if g.sv["opts"]["fullscreen"]:
+    if g.sv["opts"]["fullscreen"] and not WEB:       # al navegador cal un clic per entrar a pantalla completa
         try:
-            pygame.display.toggle_fullscreen()
+            toggle_fullscreen()
         except Exception:
             pass
     apply_audio()
