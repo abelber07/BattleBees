@@ -4947,17 +4947,9 @@ def write_save(sv):
 
 
 # ------------------------------------------------------------ FONTS, IMATGES I CACHES
-# Lletra pixel art Galmuri (SIL Open Font License, assets/fonts/OFL-Galmuri.txt): la mateixa al PC i al navegador.
-# Les mides es tradueixen a les que la fan veure nítida (múltiples de 12 sempre que es pot).
-GALMURI_SIZE = {13: 12, 15: 14, 17: 15, 19: 17, 24: 22, 26: 24, 40: 36, 78: 72}
-
-
 def _mkfont(size):
-    try:
-        return pygame.font.Font(_asset_path(os.path.join("fonts", "Galmuri11-Bold.ttf")), GALMURI_SIZE.get(size, size))
-    except Exception:
-        pass
-    if WEB:                                   # al navegador no hi ha fonts del sistema
+    """Font monoespaiada si n'hi ha; al navegador no hi ha fonts del sistema: s'usa la per defecte."""
+    if WEB:
         return pygame.font.Font(None, int(size * 1.2))
     try:
         return pygame.font.SysFont(PF, size, bold=True)
@@ -6602,7 +6594,11 @@ class GameUI:
                 yy_ = r.y + 46 + row_ * 13
                 txt(f"{lab_} {a_}", r.x + 110, yy_, FONT_S, C_TXT)
                 if b_ > a_:                                       # què guanyes amb la millora
-                    txt(f"→ {b_}", r.x + 110 + FONT_S.size(f"{lab_} {a_}")[0] + 6, yy_, FONT_S, (150, 230, 140))
+                    ax_ = r.x + 110 + FONT_S.size(f"{lab_} {a_}")[0] + 5      # fletxa dibuixada: la lletra del navegador no la té
+                    ay_ = yy_ + FONT_S.get_height() // 2
+                    pygame.draw.line(screen, (150, 230, 140), (ax_, ay_), (ax_ + 7, ay_), 2)
+                    pygame.draw.polygon(screen, (150, 230, 140), [(ax_ + 6, ay_ - 3), (ax_ + 10, ay_), (ax_ + 6, ay_ + 3)])
+                    txt(str(b_), ax_ + 14, yy_, FONT_S, (150, 230, 140))
             if lv >= MAX_LV and self.sv["evo"].get(k):
                 mname = MUTATIONS[self.sv["mut"][k]]["name"] if self.sv["mut"].get(k) in MUTATIONS else "tria"
                 self.ui_button(pygame.Rect(r.x + 8, r.y + 100, r.w - 16, 28), "Mutació: " + mname,
